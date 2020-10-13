@@ -63,7 +63,7 @@ public class ApiRequestInvoker {
         try {
             requestBuilder.createRequest(config,kafkaRecord)
                          .setHeaders(config.headers, config.headerSeparator)
-                         .sendPayload(record.value().toString());
+                         .sendPayload(record);
         }catch (ApiResponseErrorException e) {
             exceptionHandler.handel(e);
         }catch (ApiRequestErrorException e){

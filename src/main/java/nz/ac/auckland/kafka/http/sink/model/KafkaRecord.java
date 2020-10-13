@@ -7,13 +7,13 @@ public class KafkaRecord {
     private String topic;
     private String key;
     private long offset;
-    private String value;
+    private Object value;
 
     public KafkaRecord(SinkRecord record) {
         this.topic = record.topic();
         this.key = record.key()== null ? "" : record.key().toString();
         this.offset = record.kafkaOffset();
-        this.value = record.value().toString();
+        this.value = record.value();
     }
 
     public String getTopic() {

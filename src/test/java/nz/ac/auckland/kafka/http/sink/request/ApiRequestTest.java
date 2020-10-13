@@ -89,7 +89,7 @@ public class ApiRequestTest {
         ApiRequest apiRequest = new ApiRequest(connection,kafkaRecord);
 
         Assertions.assertThrows(ApiResponseErrorException.class, () ->
-            apiRequest.sendPayload("test"));
+            apiRequest.sendPayload(null));
 
     }
 
@@ -104,7 +104,7 @@ public class ApiRequestTest {
 
         ApiRequest apiRequest = new ApiRequest(connection,kafkaRecord);
 
-        Assertions.assertDoesNotThrow (() -> apiRequest.sendPayload("test"));
+        Assertions.assertDoesNotThrow (() -> apiRequest.sendPayload(any()));
 
     }
 
