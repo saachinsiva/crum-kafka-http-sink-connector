@@ -29,44 +29,40 @@ public class ApiRequestInvoker {
         setExceptionStrategy();
     }
 
-    ApiRequestInvoker(final HttpSinkConnectorConfig config,
-                      final SinkTaskContext context, RequestBuilder requestBuilder) {
+    ApiRequestInvoker(final HttpSinkConnectorConfig config, final SinkTaskContext context,
+            RequestBuilder requestBuilder) {
         this.config = config;
         this.sinkContext = context;
         this.requestBuilder = requestBuilder;
         setExceptionStrategy();
     }
 
-    public void invoke(final Collection<SinkRecord> records){
-        for(SinkRecord record: records){
-            MDC.put("connection-name",buildTraceId(record));
-            log.info("Processing record: topic={}  partition={} offset={} value={}", record.topic(), record.kafkaPartition(), record.kafkaOffset(), record.value().toString());
-            sendAPiRequest(record);
-            MDC.clear();
-        }
+    public void invoke(final Collection<SinkRecord> records) {
+        // for(SinkRecord record: records){
+        // MDC.put("connection-name",buildTraceId(record));
+        // log.info("Processing record: trecordsopic={} partition={} offset={}
+        // value={}", record.topic(), record.kafkaPartition(), record.kafkaOffset(),
+        // record.value().toString());
+        // sendAPiRequest(record);
+        // MDC.clear();
+        // }
+        sendAPiRequest(records);
     }
 
     private String buildTraceId(SinkRecord record) {
-        return "[connection=" +
-                this.sinkContext.configs().get("name") +
-                " kafka_topic=" +
-                record.topic() +
-                " kafka_partition=" +
-                record.kafkaPartition() +
-                " kafka_offset=" +
-                record.kafkaOffset() +
-                "]";
+        return "[connection=" + this.sinkContext.configs().get("name") + " kafka_topic=" + record.topic()
+                + " kafka_partition=" + record.kafkaPartition() + " kafka_offset=" + record.kafkaOffset() + "]";
     }
 
-    private void sendAPiRequest(SinkRecord record){
-        KafkaRecord kafkaRecord = new KafkaRecord(record);
+    // private void sendAPiRequest(SinkRecord record){
+    private void sendAPiRequest(final Collection<SinkRecord> records) {
+        // KafkaRecord kafkaRecord = new KafkaRecord(record);
         try {
-            requestBuilder.createRequest(config,kafkaRecord)
-                         .setHeaders(config.headers, config.headerSeparator)
-                         .sendPayload(record);
-        }catch (ApiResponseErrorException e) {
+            requestBuilder.createRequest(config).setHeaders(config.headers, config.headerSeparator)
+                    .sendPayload(records);
+        } catch (ApiResponseErrorException e) {
             exceptionHandler.handel(e);
-        }catch (ApiRequestErrorException e){
+        } catch (ApiRequestErrorException e) {
             new StopTaskHandler().handel(e);
         }
     }

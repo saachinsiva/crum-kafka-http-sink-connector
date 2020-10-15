@@ -8,7 +8,7 @@ import java.net.URL;
 
 public class ApiRequestBuilder implements RequestBuilder {
 
-    public  ApiRequest createRequest(HttpSinkConnectorConfig config, KafkaRecord kafkaRecord){
+    public  ApiRequest createRequest(HttpSinkConnectorConfig config ){
 
         try {
             URL url = new URL(config.httpApiUrl);
@@ -17,7 +17,7 @@ public class ApiRequestBuilder implements RequestBuilder {
             connection.setRequestMethod( config.requestMethod.toString());
             connection.setConnectTimeout( config.connectTimeout);
             connection.setReadTimeout(config.readTimeout);
-            return new ApiRequest(connection,kafkaRecord);
+            return new ApiRequest(connection,config);
         }catch (Exception e) {
             throw new ApiRequestErrorException(e.getLocalizedMessage());
         }

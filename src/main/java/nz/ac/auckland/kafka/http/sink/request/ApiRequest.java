@@ -9,7 +9,10 @@ import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,27 +27,31 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import nz.ac.auckland.kafka.http.sink.HttpSinkConnectorConfig;
 import nz.ac.auckland.kafka.http.sink.model.KafkaRecord;
 
 public class ApiRequest implements Request {
 
-    static final String REQUEST_HEADER_CORRELATION_ID_KEY = "X-API-Correlation-Id";
-    static final String REQUEST_HEADER_KAFKA_TOPIC_KEY = "X-Kafka-Topic";
+    // static final String REQUEST_HEADER_CORRELATION_ID_KEY = "X-API-Correlation-Id";
+    // static final String REQUEST_HEADER_KAFKA_TOPIC_KEY = "X-Kafka-Topic";
     private HttpURLConnection connection;
     private final Logger log = LoggerFactory.getLogger(this.getClass());
-    private KafkaRecord kafkaRecord;
+    // private KafkaRecord kafkaRecord;
     private static final List<Integer> CALLBACK_API_DOWN_HTTP_STATUS_CODE = Arrays.asList(502, 503, 504);
 
     private final JsonConverter converter;
     private final ObjectMapper mapper;
 
-    ApiRequest(HttpURLConnection connection, KafkaRecord kafkaRecord) {
+    private final HttpSinkConnectorConfig config;
+    private Map<String, List<SinkRecord>> batches = new HashMap<>();
+
+    ApiRequest(HttpURLConnection connection, HttpSinkConnectorConfig config) {
         this.connection = connection;
-        this.kafkaRecord = kafkaRecord;
         this.converter = new JsonConverter();
         Map<String, Object> converterConfig = new HashMap<>();
         this.converter.configure(converterConfig, false);
         this.mapper = new ObjectMapper();
+        this.config = config;
     }
 
     @Override
@@ -58,46 +65,86 @@ public class ApiRequest implements Request {
                 connection.setRequestProperty(key, value);
             }
         }
-        addCorrelationIdHeader();
-        addTopicHeader();
+        // addCorrelationIdHeader();
+        // addTopicHeader();
         return this;
     }
 
-    private void addTopicHeader() {
-        log.debug("Adding topic header: {} = {} ", REQUEST_HEADER_KAFKA_TOPIC_KEY, kafkaRecord.getTopic());
-        connection.setRequestProperty(REQUEST_HEADER_KAFKA_TOPIC_KEY, kafkaRecord.getTopic());
-    }
+    // private void addTopicHeader() {
+    //     log.debug("Adding topic header: {} = {} ", REQUEST_HEADER_KAFKA_TOPIC_KEY, kafkaRecord.getTopic());
+    //     connection.setRequestProperty(REQUEST_HEADER_KAFKA_TOPIC_KEY, kafkaRecord.getTopic());
+    // }
 
-    private void addCorrelationIdHeader() {
-        String correlationId = kafkaRecord.getTopic() + "-" + kafkaRecord.getOffset();
-        log.debug("Adding correlationId header: {} = {} ", REQUEST_HEADER_CORRELATION_ID_KEY, correlationId);
-        connection.setRequestProperty(REQUEST_HEADER_CORRELATION_ID_KEY, correlationId);
-    }
+    // private void addCorrelationIdHeader() {
+    //     String correlationId = kafkaRecord.getTopic() + "-" + kafkaRecord.getOffset();
+    //     log.debug("Adding correlationId header: {} = {} ", REQUEST_HEADER_CORRELATION_ID_KEY, correlationId);
+    //     connection.setRequestProperty(REQUEST_HEADER_CORRELATION_ID_KEY, correlationId);
+    // }
 
     @Override
-    public void sendPayload(SinkRecord record) {
+    public void sendPayload(final Collection<SinkRecord> records) {
+        for (SinkRecord record : records) {
+            if (record.value() != null) {
+                String formattedKeyPattern = "key";
+                if (!this.batches.containsKey(formattedKeyPattern)) {
+                    this.batches.put(formattedKeyPattern, new ArrayList<>(Collections.singletonList(record)));
+                } else {
+                    ((List<SinkRecord>) this.batches.get(formattedKeyPattern)).add(record);
+                }
+                if (((List) this.batches.get(formattedKeyPattern)).size() >= this.config.batchSize)
+                    sendBatch(formattedKeyPattern);
+                continue;
+            }
+        }
+        flushBatches();
+    }
+
+    private void flushBatches() {
+        for (Map.Entry<String, List<SinkRecord>> entry : this.batches.entrySet())
+            sendBatch(entry.getKey());
+    }
+
+    private void sendBatch(String formattedKeyPattern) {
+        List<SinkRecord> records = this.batches.get(formattedKeyPattern);
         try (OutputStreamWriter out = new OutputStreamWriter(connection.getOutputStream(), StandardCharsets.UTF_8);
                 JsonGenerator generator = mapper.getFactory().createGenerator(out)) {
-            if (record != null && record.value() != null && record.value() instanceof Struct) {
-                byte[] rawData = converter.fromConnectData(record.topic(), record.valueSchema(), record.value());
-                String valueInString = new String(rawData, StandardCharsets.UTF_8);
-                generator.writeStartArray();
-                generator.writeRawValue(valueInString);
-                generator.writeEndArray();
-                generator.flush();
-                log.info("Submitted request: url={} payload={}", connection.getURL(), valueInString);
-                isSendRequestSuccessful();
-                validateResponse();
+            for (SinkRecord record : records) {
+                if (record != null && record.value() != null && record.value() instanceof Struct) {
+                    byte[] rawData = converter.fromConnectData(record.topic(), record.valueSchema(), record.value());
+                    String valueInString = new String(rawData, StandardCharsets.UTF_8);
+                    generator.writeStartArray();
+                    generator.writeRawValue(valueInString);
+                    generator.writeEndArray();
+                    generator.flush();
+                    log.info("Submitted request: url={} payload={}", connection.getURL(), valueInString);
+                }
             }
+            isSendRequestSuccessful();
+            validateResponse();
         } catch (ApiResponseErrorException e) {
             throw e;
         } catch (Exception e) {
             log.error(e.getLocalizedMessage(), e);
-            throw new ApiRequestErrorException(e.getLocalizedMessage(), kafkaRecord);
+            throw new ApiRequestErrorException(e.getLocalizedMessage());
         } finally {
             connection.disconnect();
         }
     }
+
+    // private String buildBatchPayload(List<SinkRecord> records) throws IOException
+    // {
+    // ByteArrayOutputStream out = new ByteArrayOutputStream();
+    // JsonGenerator generator = mapper.getFactory().createGenerator(out);
+    // generator.writeStartArray();
+    // for (SinkRecord record : records)
+    // generator.writeRawValue(
+    // new String(converter.fromConnectData(record.topic(), record.valueSchema(),
+    // record.value()),
+    // StandardCharsets.UTF_8));
+    // generator.writeEndArray();
+    // generator.flush();
+    // return out.toString("UTF-8");
+    // }
 
     private void isSendRequestSuccessful() {
         try {
@@ -105,7 +152,7 @@ public class ApiRequest implements Request {
             log.info("Response Status: {}", statusCode);
             if (CALLBACK_API_DOWN_HTTP_STATUS_CODE.contains(statusCode)) {
                 throw new ApiRequestErrorException(
-                        "Unable to connect to callback API: " + " received status: " + statusCode, kafkaRecord);
+                        "Unable to connect to callback API: " + " received status: " + statusCode);
             }
         } catch (SocketTimeoutException e) {
             log.warn("Unable to obtain response from callback API. \n Error:{} ", e.getMessage());
@@ -123,7 +170,7 @@ public class ApiRequest implements Request {
             JSONObject response = new JSONObject(resp);
             boolean retry = response.getBoolean("retry");
             if (retry) {
-                throw new ApiResponseErrorException("Unable to process message.", kafkaRecord);
+                throw new ApiResponseErrorException("Unable to process batch.");
             }
         } catch (Exception e) {
             // it is not json so nothing to do here.
@@ -138,10 +185,10 @@ public class ApiRequest implements Request {
             try {
                 String error = readResponse(connection.getErrorStream());
                 log.error("Error Validating response. \n Error:{}", error);
-                throw new ApiRequestErrorException(error, kafkaRecord);
+                throw new ApiRequestErrorException(error);
             } catch (IOException e1) {
                 log.error("Error Validating response. \n Error:{}", e1.getLocalizedMessage());
-                throw new ApiRequestErrorException(e1.getLocalizedMessage(), kafkaRecord);
+                throw new ApiRequestErrorException(e1.getLocalizedMessage());
             }
 
         }
